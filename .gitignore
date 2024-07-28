@@ -24,3 +24,5 @@ myapp_log.txt
 /dvd/__pycache__
 /dvd/__pycache__
 myapp_log.txt
+/MyMediaPlayer/.vs
+/MyMediaPlayer/bin/Debug
