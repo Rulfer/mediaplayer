@@ -25,7 +25,8 @@ namespace MyMediaPlayer
             Invoke(new Action(() =>
             {
                 pictureBox.Image?.Dispose();
-                Program.Form.pictureBox.Image = image;
+                pictureBox.Image = image;
+                pictureBox.Refresh();
             }));
         }
 
