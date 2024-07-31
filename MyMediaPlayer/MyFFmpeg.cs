@@ -70,16 +70,25 @@ namespace MyMediaPlayer
 
         /// <summary>
         /// Remember to set <see cref="VideoPath"/> as that is what we use when retrieving the FPS.
+        /// This extract both frames and audio for the given time frame.
         /// </summary>
-        internal static async Task ExtractFrames(string outputFolder, int desiredFPS, string from = "00:00:00", float duration = 0.5f)
+        internal static async Task ExtractData(string outputFolder, int desiredFPS, string from = "00:00:00", float duration = 0.5f, int run = 0)
         {
             CloseProcess();
+            // Combined ffmpeg command
+            run++;
+
+            string videoFilter = $"-ss {from} -t {duration} -i {VideoPath} -vf fps={desiredFPS} \"{outputFolder}\\frame_%04d.png\"";
+            string audioFilter = $"-map 0:a \"{outputFolder}\\output.aac\"";
+
             var startInfo = new ProcessStartInfo
             {
                 FileName = ffmpegEXE,
-                //Arguments = $"-ss 00:00:00 -i \"{VideoPath}\" -t 10 -vf fps={desiredFPS} \"{outputFolder}\\frame_%04d.png\"",
-                Arguments = $"-ss {from} -i {VideoPath} -t {duration} -vf fps={desiredFPS} \"{outputFolder}\\frame_%04d.png\"",
+                //Arguments = $"-ss {from} -t {duration} -i {VideoPath} -vf fps={desiredFPS} \"{outputFolder}\\frame_%04d.png\"",
+                Arguments = $"{videoFilter} {audioFilter}",
+
                 RedirectStandardOutput = true,
+                RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
@@ -88,11 +97,24 @@ namespace MyMediaPlayer
             {
                 using (var process = Process.Start(startInfo))
                 {
+                    process.OutputDataReceived += (o, e) => Debug.WriteLine(e.Data ?? "NULL", "ffmpeg-data");
+                    process.ErrorDataReceived += (o, e) => Debug.WriteLine(e.Data ?? "NULL", "ffmpeg-error");
+                    process.Exited += (o, e) => Debug.WriteLine("Exited: " + e.ToString(), "ffmpeg-exit");
+
+                    process.BeginOutputReadLine();
+                    process.BeginErrorReadLine();
+
                     process.WaitForExit();
+                    //if (run <= 3)
+                    //    ExtractData(outputFolder, desiredFPS, from, duration, run);
                 }
             });
         }
 
+        /// <summary>
+        /// Plays <see cref="VideoPath"/> using ffplay.exe instead of ffmpeg.exe
+        /// </summary>
+        /// <returns></returns>
         internal static async Task PlayVideo()
         {
             CloseProcess();
@@ -101,6 +123,7 @@ namespace MyMediaPlayer
                 FileName = $@"{ffplayEXE}",
                 Arguments = "-noborder -an -x 100 -y 100 -i " + VideoPath,
                 RedirectStandardOutput = true,
+                RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
@@ -138,7 +161,6 @@ namespace MyMediaPlayer
                 }
             });
         }
-
 
         private static async void PollForPlaybackStart()
         {

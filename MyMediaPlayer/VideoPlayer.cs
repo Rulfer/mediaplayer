@@ -61,16 +61,16 @@ namespace MyMediaPlayer
             double fps = MyFFmpeg.GetFPS();
             Debug.WriteLine("Yo, MyFPS is " + fps);
 
-            MyFFmpeg.PlayVideo();
-            //var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
-            //Debug.WriteLine("Extract images to " + tempDir);
-            //if (!Directory.Exists(tempDir))
-            //    Directory.CreateDirectory(tempDir);
+            //MyFFmpeg.PlayVideo();
+            var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+            Debug.WriteLine("Extract images to " + tempDir);
+            if (!Directory.Exists(tempDir))
+                Directory.CreateDirectory(tempDir);
 
-            //Process.Start("explorer.exe", $@"{tempDir}");
-            //await MyFFmpeg.ExtractFrames(tempDir, Convert.ToInt32(fps));
-            //Debug.WriteLine("All frames extracted to " + tempDir + ".");
-            //_token = new CancellationTokenSource();
+            Process.Start("explorer.exe", $@"{tempDir}");
+            await MyFFmpeg.ExtractData(tempDir, Convert.ToInt32(fps));
+            Debug.WriteLine("All frames extracted to " + tempDir + ".");
+            _token = new CancellationTokenSource();
 
             ////Task.Run(() => RetrieveFrames(_token.Token));
             ////Task.Run(() => DisplayNextFrame(_token.Token));
