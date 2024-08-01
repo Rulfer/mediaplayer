@@ -1,3 +1,5 @@
+using System.Media;
+using System.Security.Cryptography;
 using Xabe.FFmpeg;
 
 namespace MyMediaPlayer
@@ -28,6 +30,21 @@ namespace MyMediaPlayer
         static void OnFormLoaded(object sender, EventArgs e)
         {
             VideoPlayer.Initialize();
+
+            // Example of easy way to play an audio file.
+            //LoadFileAsync();
+        }
+
+        static async void LoadFileAsync()
+        {
+            byte[] bytes = await File.ReadAllBytesAsync(@"path/to/some/audio.wav");
+            MemoryStream memoryStream = new MemoryStream(bytes);
+
+            memoryStream.Position = 0; // Reset the stream position to the beginning
+            using (SoundPlayer soundPlayer = new SoundPlayer(memoryStream))
+            {
+                soundPlayer.Play(); // Play the audio asynchronously
+            }
         }
     }
 }

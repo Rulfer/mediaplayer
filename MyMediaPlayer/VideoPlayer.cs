@@ -9,7 +9,10 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 
 using LibVLCSharp.Shared;
+using MyMediaPlayer.Data;
 using Xabe.FFmpeg;
+
+using Extract = MyMediaPlayer.MyFFmpeg.Extract;
 
 namespace MyMediaPlayer
 {
@@ -27,15 +30,22 @@ namespace MyMediaPlayer
         //private System.Threading.Timer _playbackTimer;
 
         private int _bufferSeconds = 10;
-        private int _fps;
+        private double _fps;
+        private double _videoDuration;
         private double _currentPosition = 0;
 
         private string _videoPath;
+        private string _currentTempDir;
+        private const string _frameFolderName = "Frames";
+        private const string _audioFolderName = "Audio";
 
         private IMediaInfo _mediaInfo;
         private IVideoStream _videoStream;
 
         CancellationTokenSource _token;
+
+        private List<FrameChunk> _frameChunks = new List<FrameChunk>();
+        private List<AudioChunk> _audioChunks = new List<AudioChunk>();
 
         /// <summary>
         /// Start a video with a hardcoded path.
@@ -57,123 +67,134 @@ namespace MyMediaPlayer
             //    return;
             //}
 
+            _token = new CancellationTokenSource();
             MyFFmpeg.VideoPath = _videoPath;
-            double fps = MyFFmpeg.GetFPS();
-            Debug.WriteLine("Yo, MyFPS is " + fps);
+            _fps = MyFFmpeg.GetFPS();
+            _videoDuration = MyFFmpeg.GetVideoDuration();
+            Debug.WriteLine("Yo, MyFPS is " + _fps);
 
             //MyFFmpeg.PlayVideo();
-            var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
-            Debug.WriteLine("Extract images to " + tempDir);
-            if (!Directory.Exists(tempDir))
-                Directory.CreateDirectory(tempDir);
+            _currentTempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
 
-            Process.Start("explorer.exe", $@"{tempDir}");
-            await MyFFmpeg.ExtractData(tempDir, Convert.ToInt32(fps));
-            Debug.WriteLine("All frames extracted to " + tempDir + ".");
-            _token = new CancellationTokenSource();
-
+            RetrieveFrames();
+            RetrieveAudio();
             ////Task.Run(() => RetrieveFrames(_token.Token));
             ////Task.Run(() => DisplayNextFrame(_token.Token));
         }
 
-        private async Task ExtractFrames()
+        private async void RetrieveFrames()
         {
-            try
-            {
+            string frameDir = Path.Combine(_currentTempDir, _frameFolderName);
+            Debug.WriteLine("Extract images to " + frameDir);
+            if (!Directory.Exists(frameDir))
+                Directory.CreateDirectory(frameDir);
 
-                var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
-                Debug.WriteLine("Add to path: " + tempDir);
-                if(!Directory.Exists(tempDir))
-                    Directory.CreateDirectory(tempDir);
-
-                string outputFilePattern = Path.Combine(tempDir, "frame_%03d.png");
-
-                // Extract frames for the next 10 seconds
-                await FFmpeg.Conversions.New()
-                    .AddStream(_videoStream)
-                    .UseMultiThread(8)
-                    .SetSeek(TimeSpan.FromSeconds(_currentPosition))
-                    .SetOutputTime(TimeSpan.FromSeconds(_bufferSeconds))
-                    .SetOutput(outputFilePattern)
-                    .Start();
-                Debug.WriteLine("New frames extracted.");
-                var frameFiles = Directory.GetFiles(tempDir, "*.png");
-                foreach (var frameFile in frameFiles)
-                {
-                    try
-                    {
-                        using (var stream = new FileStream(frameFile, FileMode.Open, FileAccess.Read))
-                        {
-                            var bitmap = new Bitmap(stream);
-                            _frameBuffer.Enqueue(bitmap);
-                        }
-                        File.Delete(frameFile);
-                        Debug.WriteLine("Frame added to buffer and deleted: " + frameFile);
-                    }
-                    catch (IOException ex)
-                    {
-                        Debug.WriteLine("Error processing frame file: " + ex.Message);
-                    }
-                }
-
-                try
-                {
-                    Directory.Delete(tempDir, true);
-                    Debug.WriteLine("Temporary directory deleted: " + tempDir);
-                }
-                catch (IOException ex)
-                {
-                    Debug.WriteLine("Error deleting temporary directory: " + ex.Message);
-                }
-                // Update currentPosition to the end of the extracted segment
-                _currentPosition += _bufferSeconds;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine("Error during frame extraction: " + ex.Message);
-            }
+            Process.Start("explorer.exe", $@"{frameDir}");
+            await MyFFmpeg.ExtractData(Extract.Frame, frameDir, Convert.ToInt32(_fps));
+            Debug.WriteLine("All frames extracted to " + frameDir + ".");
         }
 
-        private async Task DisplayNextFrame(CancellationToken token)
+        private async void RetrieveAudio()
         {
-            while (!token.IsCancellationRequested)
-            {
-                while (_frameBuffer.Count <= 0)
-                    await Task.Yield();
+            string audioDir = Path.Combine(_currentTempDir, _audioFolderName);
+            Debug.WriteLine("Extract audio to " + audioDir);
+            if (!Directory.Exists(audioDir))
+                Directory.CreateDirectory(audioDir);
 
-                await Task.Delay((1 / _fps) * 1000);
-
-                if (_frameBuffer.TryDequeue(out Bitmap frame))
-                {
-                    Program.Form.SetNewImage(frame);
-                }
-            }
+            Process.Start("explorer.exe", $@"{audioDir}");
+            await MyFFmpeg.ExtractData(Extract.Audio, audioDir, Convert.ToInt32(_fps), duration: 10.0f);
+            Debug.WriteLine("All audio extracted to " + audioDir + ".");
         }
 
-        private async Task RetrieveFrames(CancellationToken token)
+        private async Task ExtractData()
         {
-            while (!token.IsCancellationRequested)
-            {
-                await ExtractFrames();
 
-                while (_frameBuffer.Count() / _fps > (_bufferSeconds / 2))
-                    await Task.Yield();
-            }
         }
 
-        //private void DisplayNextFrame()
+        //private async Task ExtractFrames()
         //{
-        //    if (_frameBuffer.TryDequeue(out Bitmap frame))
+        //    try
         //    {
-        //        Program.Form.SetNewImage(frame);
+
+        //        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        //        Debug.WriteLine("Add to path: " + tempDir);
+        //        if(!Directory.Exists(tempDir))
+        //            Directory.CreateDirectory(tempDir);
+
+        //        string outputFilePattern = Path.Combine(tempDir, "frame_%03d.png");
+
+        //        // Extract frames for the next 10 seconds
+        //        await FFmpeg.Conversions.New()
+        //            .AddStream(_videoStream)
+        //            .UseMultiThread(8)
+        //            .SetSeek(TimeSpan.FromSeconds(_currentPosition))
+        //            .SetOutputTime(TimeSpan.FromSeconds(_bufferSeconds))
+        //            .SetOutput(outputFilePattern)
+        //            .Start();
+        //        Debug.WriteLine("New frames extracted.");
+        //        var frameFiles = Directory.GetFiles(tempDir, "*.png");
+        //        foreach (var frameFile in frameFiles)
+        //        {
+        //            try
+        //            {
+        //                using (var stream = new FileStream(frameFile, FileMode.Open, FileAccess.Read))
+        //                {
+        //                    var bitmap = new Bitmap(stream);
+        //                    _frameBuffer.Enqueue(bitmap);
+        //                }
+        //                File.Delete(frameFile);
+        //                Debug.WriteLine("Frame added to buffer and deleted: " + frameFile);
+        //            }
+        //            catch (IOException ex)
+        //            {
+        //                Debug.WriteLine("Error processing frame file: " + ex.Message);
+        //            }
+        //        }
+
+        //        try
+        //        {
+        //            Directory.Delete(tempDir, true);
+        //            Debug.WriteLine("Temporary directory deleted: " + tempDir);
+        //        }
+        //        catch (IOException ex)
+        //        {
+        //            Debug.WriteLine("Error deleting temporary directory: " + ex.Message);
+        //        }
+        //        // Update currentPosition to the end of the extracted segment
+        //        _currentPosition += _bufferSeconds;
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        Debug.WriteLine("Error during frame extraction: " + ex.Message);
         //    }
         //}
 
-        //private void StartPlayback()
+        //private async Task DisplayNextFrame(CancellationToken token)
         //{
-        //    _playbackTimer = new System.Threading.Timer(async _ => await ExtractFrames(), null, 0, _bufferSeconds * 1000);
+        //    while (!token.IsCancellationRequested)
+        //    {
+        //        while (_frameBuffer.Count <= 0)
+        //            await Task.Yield();
+
+        //        await Task.Delay((1 / _fps) * 1000);
+
+        //        if (_frameBuffer.TryDequeue(out Bitmap frame))
+        //        {
+        //            Program.Form.SetNewImage(frame);
+        //        }
+        //    }
         //}
 
+        //private async Task RetrieveFrames(CancellationToken token)
+        //{
+        //    while (!token.IsCancellationRequested)
+        //    {
+        //        await ExtractFrames();
+
+        //        while (_frameBuffer.Count() / _fps > (_bufferSeconds / 2))
+        //            await Task.Yield();
+        //    }
+        //}
 
         private Image ResizeImageToFit(Image image)
         {

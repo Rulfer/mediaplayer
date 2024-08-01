@@ -16,7 +16,17 @@ namespace MyMediaPlayer
 
         private static string _videoPath;
 
-        private static Process _process = null;
+        private static Process _processExtractFrame = null;
+        private static Process _processExtractAudio = null;
+
+        private static double CACHED_FPS;
+        private static double CACHED_VIDEO_DURATION;
+
+        public enum Extract
+        {
+            Frame,
+            Audio
+        }
 
         internal static string VideoPath 
         { 
@@ -32,11 +42,10 @@ namespace MyMediaPlayer
 
         private static void CloseProcess()
         {
-            if (_process == null)
-                return;
-
-            _process.Close();
-            _process = null;
+            _processExtractFrame?.Close();
+            _processExtractAudio?.Close();
+            _processExtractFrame = null;
+            _processExtractAudio = null;
         }
 
         /// <summary>
@@ -65,27 +74,66 @@ namespace MyMediaPlayer
             string[] splits = fps.Split("/");
             double first = double.Parse(splits[0]);
             double second = double.Parse(splits[1]);
+            CACHED_FPS = first / second;
             return first / second;
         }
 
+        internal static double GetVideoDuration()
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = ffprobeEXE,
+                Arguments = $"-v error -show_entries format=duration -of csv=p=0 {VideoPath}",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using (Process process = Process.Start(startInfo))
+            {
+                using (StreamReader reader = process.StandardOutput)
+                {
+                    string result = reader.ReadToEnd();
+                    CACHED_VIDEO_DURATION = double.Parse(result);
+                    return double.Parse(result);
+                }
+            }
+        }
         /// <summary>
         /// Remember to set <see cref="VideoPath"/> as that is what we use when retrieving the FPS.
         /// This extract both frames and audio for the given time frame.
         /// </summary>
-        internal static async Task ExtractData(string outputFolder, int desiredFPS, string from = "00:00:00", float duration = 0.5f, int run = 0)
+        /// <returns>
+        /// Absolute path to the generated file(s)
+        /// </returns>
+        internal static async Task<string> ExtractData(Extract extract, string outputFolder, int desiredFPS, string from = "00:00:00", float duration = 0.5f)
         {
             CloseProcess();
-            // Combined ffmpeg command
-            run++;
 
-            string videoFilter = $"-ss {from} -t {duration} -i {VideoPath} -vf fps={desiredFPS} \"{outputFolder}\\frame_%04d.png\"";
-            string audioFilter = $"-map 0:a \"{outputFolder}\\output.aac\"";
+            string pathToReturn = "NULL";
+
+            string uniqueArguments = "";
+            switch(extract)
+            {
+                case Extract.Frame:
+                    uniqueArguments = $"-vf fps={desiredFPS} \"{outputFolder}\\frame_%04d.png\"";
+                    break;
+
+                case Extract.Audio:
+                    string fileName = $"\"{outputFolder}\\output" + from.Replace(":", "_") + ".wav\"";
+                    pathToReturn = Path.Combine(pathToReturn, fileName);
+                    // Optinally add -ar 44100 to ensure the bitrate of the audio.
+                    uniqueArguments = $"-vn -map 0:a:0 -acodec pcm_s16le {fileName}";
+                    break;
+            }
+
+            string arguments = $"-ss {from} -t {duration} -i {VideoPath} {uniqueArguments}";
+
 
             var startInfo = new ProcessStartInfo
             {
                 FileName = ffmpegEXE,
-                //Arguments = $"-ss {from} -t {duration} -i {VideoPath} -vf fps={desiredFPS} \"{outputFolder}\\frame_%04d.png\"",
-                Arguments = $"{videoFilter} {audioFilter}",
+                Arguments = $"{arguments}",
 
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -105,10 +153,10 @@ namespace MyMediaPlayer
                     process.BeginErrorReadLine();
 
                     process.WaitForExit();
-                    //if (run <= 3)
-                    //    ExtractData(outputFolder, desiredFPS, from, duration, run);
                 }
             });
+
+            return pathToReturn;
         }
 
         /// <summary>
@@ -145,19 +193,19 @@ namespace MyMediaPlayer
             //ffplay.BeginOutputReadLine();
             await Task.Run(async () =>
             {
-                using (_process = Process.Start(startInfo))
+                using (_processExtractFrame = Process.Start(startInfo))
                 {
-                    _process.EnableRaisingEvents = true;
-                    _process.OutputDataReceived += (o, e) => Debug.WriteLine(e.Data ?? "NULL", "ffplay-data");
-                    _process.OutputDataReceived += FfplayProcess_OutputDataReceived;
-                    _process.ErrorDataReceived += (o, e) => Debug.WriteLine(e.Data ?? "NULL", "ffplay-error");
-                    _process.Exited += (o, e) => Debug.WriteLine("Exited: " + e.ToString(), "ffplay-exit");
-                    _process.BeginOutputReadLine();
+                    _processExtractFrame.EnableRaisingEvents = true;
+                    _processExtractFrame.OutputDataReceived += (o, e) => Debug.WriteLine(e.Data ?? "NULL", "ffplay-data");
+                    _processExtractFrame.OutputDataReceived += FfplayProcess_OutputDataReceived;
+                    _processExtractFrame.ErrorDataReceived += (o, e) => Debug.WriteLine(e.Data ?? "NULL", "ffplay-error");
+                    _processExtractFrame.Exited += (o, e) => Debug.WriteLine("Exited: " + e.ToString(), "ffplay-exit");
+                    _processExtractFrame.BeginOutputReadLine();
                     PollForPlaybackStart();
                     //await Task.Delay(500);
                     //Program.Form.InjectFFmpeg(ffplay);
 
-                    _process.WaitForExit();
+                    _processExtractFrame.WaitForExit();
                 }
             });
         }
@@ -170,15 +218,15 @@ namespace MyMediaPlayer
                 await Task.Delay(10); // Poll every 10ms
                 try
                 {
-                    if (_process != null && !_process.HasExited)
+                    if (_processExtractFrame != null && !_processExtractFrame.HasExited)
                     {
                         // Check if the process is using CPU
-                        _process.Refresh();
-                        if (_process.TotalProcessorTime.TotalMilliseconds > 0)
+                        _processExtractFrame.Refresh();
+                        if (_processExtractFrame.TotalProcessorTime.TotalMilliseconds > 0)
                         {
                             playbackStarted = true;
                             await Task.Delay(500); // Ensure enough time for playback to start
-                            Program.Form.InjectFFmpeg(_process);
+                            Program.Form.InjectFFmpeg(_processExtractFrame);
                             Debug.WriteLine("Detected activity in process");
                         }
                     }
