@@ -10,6 +10,9 @@ namespace MyMediaPlayer.Data
     internal class FrameChunk
     {
         public ConcurrentQueue<Bitmap> frameBuffer = new ConcurrentQueue<Bitmap>();
-        public double id = 0;
+        /// <summary>
+        /// The actual frame this is.
+        /// </summary>
+        public double frame = 0;
     }
 }
