@@ -136,7 +136,71 @@ namespace MyMediaPlayer
             return $@"-hwaccel cuda -hwaccel_output_format cuda -ss {from} -t {duration} -i {VideoPath} {uniqueArguments}";
         }
 
+        internal static async void GetAllTheFrames()
+        {
+            int coreCount = Math.Clamp(Environment.ProcessorCount - 2, 1, Environment.ProcessorCount);
+            double frameCount = CACHED_VIDEO_DURATION * CACHED_FPS;
+            int frame = 0;
+            string argument = $@"-hwaccel auto -ss 00:00:00 -i {VideoPath} -threads {1} -vframes 1 -f image2pipe pipe:1";
+            //string argument = $@"-hwaccel auto -i {VideoPath} -threads {coreCount} -ss {from} -vf fps={1 / interval} -t {duration} -f image2pipe -pix_fmt rgb24 pipe:1";
 
+            try
+            {
+                await Task.Run(async () =>
+                {
+                    using (var process = new Process { StartInfo = NewProcessStartInfo(argument), EnableRaisingEvents = true })
+                    {
+       
+                            Debug.WriteLine("Start reading frames");
+                            process.Start();
+
+                            var errorTask = ReadStreamAsync(process.StandardError.BaseStream, "my-ffmpeg-error");
+                            var imageDataTask = ReadStreamAsyncWithData(process.StandardOutput.BaseStream, "my-ffmpeg-data");
+                            var imageData = await imageDataTask;
+                            Debug.WriteLine("Data read.");
+
+                            // Convert the byte array to an image
+                            using (var memoryStream = new MemoryStream(imageData))
+                            {
+                                var image = Image.FromStream(memoryStream);
+                                Debug.WriteLine("Image converted.");
+                                Program.Form.SetNewImage(ResizeImageToFit(image));
+                            }
+
+                        process.WaitForExit(); // Ensure the process exits properly
+                        //await errorTask; // Ensure we read the error output completely
+                    }
+                });
+            }
+            catch (Exception e)
+            {
+                Debug.WriteLine(e.StackTrace);
+                Debug.WriteLine(e.Message);
+            }
+        }
+
+        private static Image ResizeImageToFit(Image image)
+        {
+            int sourceWidth = image.Width;
+            int sourceHeight = image.Height;
+            int targetWidth = Program.Frame.ClientSize.Width;
+            int targetHeight = Program.Frame.ClientSize.Height;
+
+            float nPercentW = (float)targetWidth / (float)sourceWidth;
+            float nPercentH = (float)targetHeight / (float)sourceHeight;
+            float nPercent = Math.Min(nPercentW, nPercentH);
+
+            int destWidth = (int)(sourceWidth * nPercent);
+            int destHeight = (int)(sourceHeight * nPercent);
+
+            Bitmap result = new Bitmap(targetWidth, targetHeight);
+            using (Graphics g = Graphics.FromImage(result))
+            {
+                g.Clear(Color.Black);
+                g.DrawImage(image, (targetWidth - destWidth) / 2, (targetHeight - destHeight) / 2, destWidth, destHeight);
+            }
+            return result;
+        }
 
         internal static async Task<System.Collections.Concurrent.ConcurrentQueue<Bitmap>> GetNextFrame(float interval, TimeSpan from, float duration, int width = 1920, int height = 1080)
         {
@@ -144,7 +208,8 @@ namespace MyMediaPlayer
             //string argument = $@"-i {VideoPath} -ss {from} -vf fps={1 / interval} -t {duration} -f image2pipe -pix_fmt rgb24 -vcodec rawvideo pipe:1";
             // Reducing the amount of used threads slows down the process, but increases the stability of the computer in general.
             int coreCount = Math.Clamp(Environment.ProcessorCount - 2, 1, Environment.ProcessorCount); 
-            string argument = $@"-hwaccel auto -i {VideoPath} -threads {coreCount} -ss {from} -vf fps={1 / interval} -t {duration} -f image2pipe -pix_fmt rgb24 pipe:1";
+            //string argument = $@"-hwaccel auto -i {VideoPath} -threads {coreCount} -ss {from} -vf fps={1 / interval} -t {duration} -f image2pipe -pix_fmt rgb24 pipe:1";
+            string argument = $@"-hwaccel auto -ss {from} -t {duration} -i {VideoPath} -threads {coreCount} -f image2pipe -";
             System.Collections.Concurrent.ConcurrentQueue<Bitmap> queue = new System.Collections.Concurrent.ConcurrentQueue<Bitmap>();
 
             try
@@ -156,47 +221,51 @@ namespace MyMediaPlayer
                         //process.OutputDataReceived += (o, e) => Debug.WriteLine(e.Data ?? "NULL", "ffmpeg-data");
                         //process.ErrorDataReceived += (o, e) => Debug.WriteLine(e.Data ?? "NULL", "ffmpeg-error");
                         //process.Exited += (o, e) => Debug.WriteLine("Exited: " + e.ToString(), "ffmpeg-exit");
+                        Debug.WriteLine("Start reading frames");
                         process.Start();
 
                         var errorTask = ReadStreamAsync(process.StandardError.BaseStream, "my-ffmpeg-error");
+                        var standardTask = ReadStreamAsync(process.StandardOutput.BaseStream, "my-ffmpeg-standard");
 
                         //process.BeginOutputReadLine();
                         //process.BeginErrorReadLine();
-
+                        width = 3440;
+                        height = 1440;
                         int frameSize = width * height * 3; // Example for 640x480 RGB frames
 
 
-                        Debug.WriteLine("Start reading frames");
-                        int expectedFrames = (int)(from.TotalSeconds / interval);
-                        Debug.WriteLine($"Expecting {expectedFrames} frames");
+                        //int expectedFrames = (int)(from.TotalSeconds / interval);
+                        //Debug.WriteLine($"Expecting {expectedFrames} frames");
+
                         List<byte[]> frames = new List<byte[]>();
-                        for (int i = 0; i < expectedFrames; i++)
-                        {
-                            byte[] buffer = new byte[frameSize];
-                            int bytesRead = 0;
+                        //for (int i = 0; i < expectedFrames; i++)
+                        //while(!process.HasExited)
+                        //{ 
+                        //    byte[] buffer = new byte[frameSize];
+                        //    int bytesRead = 0;
 
-                            while (bytesRead < frameSize)
-                            {
-                                int read = await process.StandardOutput.BaseStream.ReadAsync(buffer, bytesRead, frameSize - bytesRead);
-                                if (read == 0)
-                                {
-                                    Debug.WriteLine("End of stream reached or no data available.");
-                                    break;
-                                }
-                                bytesRead += read;
-                            }
+                        //    while (bytesRead < frameSize)
+                        //    {
+                        //        int read = await process.StandardOutput.BaseStream.ReadAsync(buffer, bytesRead, frameSize - bytesRead);
+                        //        if (read == 0)
+                        //        {
+                        //            Debug.WriteLine("End of stream reached or no data available.");
+                        //            break;
+                        //        }
+                        //        bytesRead += read;
+                        //    }
 
-                            if (bytesRead == frameSize)
-                            {
-                                queue.Enqueue(ConvertToBitMap(buffer, width, height));
-                                Debug.WriteLine("Added new frame to buffer");
-                            }
-                            else
-                            {
-                                Debug.WriteLine($"Incomplete frame read: {bytesRead} bytes read, expected {frameSize} bytes");
-                                break;
-                            }
-                        }
+                        //    if (bytesRead == frameSize)
+                        //    {
+                        //        queue.Enqueue(ConvertToBitMap(buffer, width, height));
+                        //        Debug.WriteLine("Added new frame to buffer");
+                        //    }
+                        //    else
+                        //    {
+                        //        Debug.WriteLine($"Incomplete frame read: {bytesRead} bytes read, expected {frameSize} bytes");
+                        //        break;
+                        //    }
+                        //}
 
                         process.WaitForExit(); // Ensure the process exits properly
                         await errorTask; // Ensure we read the error output completely
@@ -220,6 +289,15 @@ namespace MyMediaPlayer
                     var line = await reader.ReadLineAsync();
                     Debug.WriteLine(line ?? "NULL", tag);
                 }
+            }
+        }
+
+        private static async Task<byte[]> ReadStreamAsyncWithData(Stream stream, string tag)
+        {
+            using (var memoryStream = new MemoryStream())
+            {
+                await stream.CopyToAsync(memoryStream);
+                return memoryStream.ToArray();
             }
         }
 

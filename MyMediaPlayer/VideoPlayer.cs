@@ -75,10 +75,12 @@ namespace MyMediaPlayer
             //MyFFmpeg.PlayVideo();
             _currentTempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
 
+            MyFFmpeg.GetAllTheFrames();
+
             //RetrieveFrames();
             //RetrieveAudio();
-            Task.Run(() => RetrieveFrames(_token.Token));
-            Task.Run(() => DisplayNextFrame(_token.Token));
+            //Task.Run(() => RetrieveFrames(_token.Token));
+            //Task.Run(() => DisplayNextFrame(_token.Token));
         }
 
         //private async void RetrieveFrames()
