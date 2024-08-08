@@ -20,11 +20,15 @@ namespace MyMediaPlayer
             // To customize application configuration such as set high DPI settings or default font,
             // see https://aka.ms/applicationconfiguration.
             ApplicationConfiguration.Initialize();
-
+            Application.ApplicationExit += OnApplicationQuit;
             Form = new Form1();
             Form.Load += OnFormLoaded;
             Application.Run(Form);
 
+        }
+
+        private static void OnApplicationQuit(object? sender, EventArgs e)
+        {
         }
 
         static void OnFormLoaded(object sender, EventArgs e)

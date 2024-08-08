@@ -1,15 +1,14 @@
-﻿using LibVLCSharp.Shared;
+﻿using NAudio.Wave;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Forms;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
+using Xabe.FFmpeg;
 
 namespace MyMediaPlayer
 {
@@ -27,6 +26,10 @@ namespace MyMediaPlayer
 
         private static int CACHED_FPS;
         private static double CACHED_VIDEO_DURATION;
+
+        private static readonly object _frameLock = new object();
+        private static List<byte[]> _frameCache = new List<byte[]>();
+        private static Thread _frameThread;
 
         public enum Extract
         {
@@ -206,10 +209,15 @@ namespace MyMediaPlayer
         private static async Task ExtractFPS()
         {
             // -loglevel quiet
-            //string singleFrameArgument = $@"-hwaccel auto -ss 00:00:00 -i {VideoPath} -threads {1} -vf fps=60 -f image2pipe pipe:1";
-            string singleFrameArgument = $@"-hwaccel auto -ss 00:00:00 -i {VideoPath} -preset ultrafast -s 1720x720 -threads {1} -f image2pipe -vcodec rawvideo -pix_fmt bgr24 pipe:1";
-            //string singleFrameArgument = $@"-hwaccel auto -ss 00:00:00 -i {VideoPath} -preset ultrafast -tune zerolatency -f image2pipe pipe:1";
+            int width = 1720;
+            int height = 720;
 
+            string singleFrameArgument = $@"-hwaccel auto -re -ss 00:00:00 -i {VideoPath} -map 0:v -preset ultrafast -s {width}x{height} -threads {4} -vf fps={CACHED_FPS} -f image2pipe -vcodec rawvideo -pix_fmt bgr24 pipe:1";
+            //string singleFrameArgument = $@"-hwaccel auto -ss 00:00:00 -i {VideoPath} -preset ultrafast -tune zerolatency -f image2pipe pipe:1";
+            //Task.Run(() => FrameHandler(width, height));
+            FrameHandler(width, height);
+            //Task.Run(AudioPlayer);
+            AudioPlayer();
             try
             {
                 await Task.Run(async () =>
@@ -223,8 +231,6 @@ namespace MyMediaPlayer
                         var errorTask = ReadStreamAsync(process.StandardError.BaseStream, "my-ffmpeg-error");
 
                         // Calculate the frame size in bytes (3 bytes per pixel for BGR format)
-                        int width = 1720;
-                        int height = 720;
                         int frameSize = width * height * 3; // 3 bytes for BGR format
 
                         var buffer = new byte[frameSize];
@@ -238,7 +244,13 @@ namespace MyMediaPlayer
                             if (bytesRead == frameSize)
                             {
                                 // Process the full frame
-                                ProcessFrame(buffer, width, height);
+                                
+                                lock(_frameLock)
+                                {
+                                    _frameCache.Add(buffer);
+                                }
+
+                                //ProcessFrame(buffer, width, height);
                                 bytesRead = 0; // Reset for the next frame
 
                                 Debug.WriteLine("Frame processed.");
@@ -263,10 +275,94 @@ namespace MyMediaPlayer
             }
         }
 
+        private static async Task AudioPlayer()
+        {
+            await Task.Run(() =>
+            {
+                string audioArgs = $"-hwaccel auto -i {VideoPath} -map 0:a -f wav pipe:1";
+
+                using (var process = new Process { StartInfo = NewProcessStartInfo(audioArgs), EnableRaisingEvents = true })
+                {
+                    process.Start();
+
+                    var audioStream = process.StandardOutput.BaseStream;
+
+                    // Play audio in the background
+                    ProcessAudioStream(audioStream);
+
+                    process.WaitForExit();
+                }
+            });
+        }
+
+        private static async void ProcessAudioStream(Stream audioStream)
+        {
+            using (var waveOut = new WaveOutEvent())
+            {
+                var waveFormat = new WaveFormat(48000, 16, 2); // Adjust to match your stream
+                var bufferedWaveProvider = new BufferedWaveProvider(waveFormat)
+                {
+                    BufferDuration = TimeSpan.FromSeconds(5), // Start with a small buffer
+                    DiscardOnBufferOverflow = false // Don't discard data on overflow; handle it manually
+                };
+
+                waveOut.Init(bufferedWaveProvider);
+                waveOut.Play();
+
+                // 16KB
+                byte[] buffer = new byte[16384];
+                int bytesRead;
+
+                while ((bytesRead = await audioStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                {
+                    // Throttle feeding if the buffer is almost full
+                    while (bufferedWaveProvider.BufferedBytes > bufferedWaveProvider.BufferLength - buffer.Length)
+                    {
+                        // Wait a short period to allow playback to consume data
+                        await Task.Delay(10);
+                    }
+
+                    bufferedWaveProvider.AddSamples(buffer, 0, bytesRead);
+                }
+
+                // Wait for the remaining data in the buffer to be played
+                while (waveOut.PlaybackState == PlaybackState.Playing && bufferedWaveProvider.BufferedBytes > 0)
+                {
+                    await Task.Delay(100);
+                }
+            }
+        }
+
+        private static async Task FrameHandler(int width, int height)
+        {
+            await Task.Run(async () =>
+            {
+                while (true)
+                {
+                    await Task.Yield();
+
+                    byte[] frame = null;
+                    lock (_frameLock)
+                    {
+                        if (_frameCache.Count > 0)
+                        {
+                            frame = _frameCache[0];
+                            _frameCache.RemoveAt(0);
+                        }
+                    }
+
+                    if (frame != null)
+                    {
+                        ProcessFrame(frame, width, height);
+                    }
+                }
+            });
+        }
+
         private static void ProcessFrame(byte[] frameData, int width, int height)
         {
             // Convert byte array to Bitmap or handle raw data as needed
-            using (var bmp = new Bitmap(width, height, PixelFormat.Format24bppRgb))
+            using (var bmp = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format24bppRgb))
             {
                 var bmpData = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height),
                     ImageLockMode.WriteOnly, bmp.PixelFormat);
@@ -298,6 +394,11 @@ namespace MyMediaPlayer
             Bitmap result = new Bitmap(targetWidth, targetHeight);
             using (Graphics g = Graphics.FromImage(result))
             {
+                // Optimize the graphics settings
+                g.InterpolationMode = InterpolationMode.NearestNeighbor;  // Prioritize speed over quality
+                //g.SmoothingMode = SmoothingMode.None;         // Disable smoothing for speed
+                //g.PixelOffsetMode = PixelOffsetMode.HighSpeed; // Optimize pixel offset handling
+
                 g.Clear(Color.Black);
                 g.DrawImage(image, (targetWidth - destWidth) / 2, (targetHeight - destHeight) / 2, destWidth, destHeight);
             }

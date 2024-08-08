@@ -25,3 +25,10 @@ F:\PersonligeProsjekter\mediaplayer\MyMediaPlayer\bin\Debug\net8.0-windows\Xabe.
 F:\PersonligeProsjekter\mediaplayer\MyMediaPlayer\bin\Debug\net8.0-windows\ffmpeg\ffmpeg.exe
 F:\PersonligeProsjekter\mediaplayer\MyMediaPlayer\bin\Debug\net8.0-windows\ffmpeg\ffplay.exe
 F:\PersonligeProsjekter\mediaplayer\MyMediaPlayer\bin\Debug\net8.0-windows\ffmpeg\ffprobe.exe
+F:\PersonligeProsjekter\mediaplayer\MyMediaPlayer\bin\Debug\net8.0-windows\NAudio.dll
+F:\PersonligeProsjekter\mediaplayer\MyMediaPlayer\bin\Debug\net8.0-windows\NAudio.Asio.dll
+F:\PersonligeProsjekter\mediaplayer\MyMediaPlayer\bin\Debug\net8.0-windows\NAudio.Core.dll
+F:\PersonligeProsjekter\mediaplayer\MyMediaPlayer\bin\Debug\net8.0-windows\NAudio.Midi.dll
+F:\PersonligeProsjekter\mediaplayer\MyMediaPlayer\bin\Debug\net8.0-windows\NAudio.Wasapi.dll
+F:\PersonligeProsjekter\mediaplayer\MyMediaPlayer\bin\Debug\net8.0-windows\NAudio.WinForms.dll
+F:\PersonligeProsjekter\mediaplayer\MyMediaPlayer\bin\Debug\net8.0-windows\NAudio.WinMM.dll

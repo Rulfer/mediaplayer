@@ -41,7 +41,6 @@
             pictureBox.Size = new Size(776, 426);
             pictureBox.TabIndex = 1;
             pictureBox.TabStop = false;
-            pictureBox.Click += pictureBox_Click;
             // 
             // Form1
             // 
