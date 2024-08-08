@@ -24,11 +24,6 @@ namespace MyMediaPlayer
             pictureBox.SizeMode = PictureBoxSizeMode.Zoom;
         }
 
-        public VideoView GetMediaPlayer()
-        {
-            return videoView;
-        }
-
         public void SetNewImage(Image image)
         {
             Invoke(new Action(() =>
@@ -56,6 +51,11 @@ namespace MyMediaPlayer
         }
 
         private void Form1_Load(object sender, EventArgs e)
+        {
+
+        }
+
+        private void pictureBox_Click(object sender, EventArgs e)
         {
 
         }

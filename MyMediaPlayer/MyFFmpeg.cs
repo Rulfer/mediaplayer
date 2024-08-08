@@ -207,7 +207,7 @@ namespace MyMediaPlayer
         {
             // -loglevel quiet
             //string singleFrameArgument = $@"-hwaccel auto -ss 00:00:00 -i {VideoPath} -threads {1} -vf fps=60 -f image2pipe pipe:1";
-            string singleFrameArgument = $@"-hwaccel auto -ss 00:00:00 -i {VideoPath} -preset ultrafast -threads {1} -f image2pipe -vcodec rawvideo -pix_fmt bgr24 pipe:1";
+            string singleFrameArgument = $@"-hwaccel auto -ss 00:00:00 -i {VideoPath} -preset ultrafast -s 1720x720 -threads {1} -f image2pipe -vcodec rawvideo -pix_fmt bgr24 pipe:1";
             //string singleFrameArgument = $@"-hwaccel auto -ss 00:00:00 -i {VideoPath} -preset ultrafast -tune zerolatency -f image2pipe pipe:1";
 
             try
@@ -223,8 +223,8 @@ namespace MyMediaPlayer
                         var errorTask = ReadStreamAsync(process.StandardError.BaseStream, "my-ffmpeg-error");
 
                         // Calculate the frame size in bytes (3 bytes per pixel for BGR format)
-                        int width = 3440;
-                        int height = 1440;
+                        int width = 1720;
+                        int height = 720;
                         int frameSize = width * height * 3; // 3 bytes for BGR format
 
                         var buffer = new byte[frameSize];

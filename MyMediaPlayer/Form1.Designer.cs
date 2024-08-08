@@ -28,29 +28,20 @@
         /// </summary>
         private void InitializeComponent()
         {
-            videoView = new LibVLCSharp.WinForms.VideoView();
             pictureBox = new PictureBox();
-            ((System.ComponentModel.ISupportInitialize)videoView).BeginInit();
             ((System.ComponentModel.ISupportInitialize)pictureBox).BeginInit();
             SuspendLayout();
             // 
-            // videoView
-            // 
-            videoView.BackColor = Color.Black;
-            videoView.Location = new Point(12, 20);
-            videoView.MediaPlayer = null;
-            videoView.Name = "videoView";
-            videoView.Size = new Size(304, 132);
-            videoView.TabIndex = 0;
-            videoView.Text = "videoView1";
-            // 
             // pictureBox
             // 
-            pictureBox.Location = new Point(176, 175);
+            pictureBox.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            pictureBox.BackgroundImageLayout = ImageLayout.None;
+            pictureBox.Location = new Point(12, 12);
             pictureBox.Name = "pictureBox";
-            pictureBox.Size = new Size(379, 189);
+            pictureBox.Size = new Size(776, 426);
             pictureBox.TabIndex = 1;
             pictureBox.TabStop = false;
+            pictureBox.Click += pictureBox_Click;
             // 
             // Form1
             // 
@@ -58,18 +49,14 @@
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(800, 450);
             Controls.Add(pictureBox);
-            Controls.Add(videoView);
             Name = "Form1";
             Text = "Form1";
             Load += Form1_Load;
-            ((System.ComponentModel.ISupportInitialize)videoView).EndInit();
             ((System.ComponentModel.ISupportInitialize)pictureBox).EndInit();
             ResumeLayout(false);
         }
 
         #endregion
-
-        private LibVLCSharp.WinForms.VideoView videoView;
         internal PictureBox pictureBox;
     }
 }
