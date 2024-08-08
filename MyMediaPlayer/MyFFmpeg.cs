@@ -3,10 +3,13 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing.Imaging;
+using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 
 namespace MyMediaPlayer
 {
@@ -136,39 +139,120 @@ namespace MyMediaPlayer
             return $@"-hwaccel cuda -hwaccel_output_format cuda -ss {from} -t {duration} -i {VideoPath} {uniqueArguments}";
         }
 
+        /// <summary>
+        /// Extract frames directly from the ffmpeg output, and convert them to Image from byte[].
+        /// </summary>
         internal static async void GetAllTheFrames()
         {
-            int coreCount = Math.Clamp(Environment.ProcessorCount - 2, 1, Environment.ProcessorCount);
-            double frameCount = CACHED_VIDEO_DURATION * CACHED_FPS;
-            int frame = 0;
-            string argument = $@"-hwaccel auto -ss 00:00:00 -i {VideoPath} -threads {1} -vframes 1 -f image2pipe pipe:1";
-            //string argument = $@"-hwaccel auto -i {VideoPath} -threads {coreCount} -ss {from} -vf fps={1 / interval} -t {duration} -f image2pipe -pix_fmt rgb24 pipe:1";
+            //int coreCount = Math.Clamp(Environment.ProcessorCount - 2, 1, Environment.ProcessorCount);
+
+            //await ExtractForLoop();
+            await ExtractFPS();
+        }
+
+        private static async Task ExtractForLoop()
+        {
+            int totalFrames = 60;
+            double frameInterval = 1.0 / 60.0;
+            for (int i = 0; i < totalFrames; i++)
+            {
+                double seekTime = i * frameInterval;
+                string singleFrameArgument = $@"-hwaccel auto -ss {seekTime.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)} -i {VideoPath} -threads {1} -vframes 1 -f image2pipe pipe:1";
+
+                try
+                {
+                    await Task.Run(async () =>
+                    {
+                        using (var process = new Process { StartInfo = NewProcessStartInfo(singleFrameArgument), EnableRaisingEvents = true })
+                        {
+
+                            Debug.WriteLine("Start reading frames");
+                            process.Start();
+
+                            var errorTask = ReadStreamAsync(process.StandardError.BaseStream, "my-ffmpeg-error");
+                            var imageDataTask = ReadMultipleFramesAsync(process.StandardOutput.BaseStream, 10);
+                            var imagesData = await imageDataTask;
+                            Debug.WriteLine("Data read.");
+
+                            // Convert each byte array to an image and update the UI
+                            foreach (var imageData in imagesData)
+                            {
+                                using (var memoryStream = new MemoryStream(imageData))
+                                {
+                                    var image = Image.FromStream(memoryStream);
+                                    Program.Form.SetNewImage(ResizeImageToFit(image));
+                                    //await Task.Delay();
+                                }
+                            }
+
+                            process.WaitForExit();
+                            // Ensure the process exits properly
+                            //await errorTask; // Ensure we read the error output completely
+                        }
+                    });
+                }
+                catch (Exception e)
+                {
+                    Debug.WriteLine(e.StackTrace);
+                    Debug.WriteLine(e.Message);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Extract all frames in order, but restrict the speed using FPS.
+        /// </summary>
+        /// <returns></returns>
+        private static async Task ExtractFPS()
+        {
+            // -loglevel quiet
+            //string singleFrameArgument = $@"-hwaccel auto -ss 00:00:00 -i {VideoPath} -threads {1} -vf fps=60 -f image2pipe pipe:1";
+            string singleFrameArgument = $@"-hwaccel auto -ss 00:00:00 -i {VideoPath} -preset ultrafast -threads {1} -f image2pipe -vcodec rawvideo -pix_fmt bgr24 pipe:1";
+            //string singleFrameArgument = $@"-hwaccel auto -ss 00:00:00 -i {VideoPath} -preset ultrafast -tune zerolatency -f image2pipe pipe:1";
 
             try
             {
                 await Task.Run(async () =>
                 {
-                    using (var process = new Process { StartInfo = NewProcessStartInfo(argument), EnableRaisingEvents = true })
+                    using (var process = new Process { StartInfo = NewProcessStartInfo(singleFrameArgument), EnableRaisingEvents = true })
                     {
-       
-                            Debug.WriteLine("Start reading frames");
-                            process.Start();
 
-                            var errorTask = ReadStreamAsync(process.StandardError.BaseStream, "my-ffmpeg-error");
-                            var imageDataTask = ReadStreamAsyncWithData(process.StandardOutput.BaseStream, "my-ffmpeg-data");
-                            var imageData = await imageDataTask;
-                            Debug.WriteLine("Data read.");
+                        Debug.WriteLine("Start reading frames");
+                        process.Start();
 
-                            // Convert the byte array to an image
-                            using (var memoryStream = new MemoryStream(imageData))
+                        var errorTask = ReadStreamAsync(process.StandardError.BaseStream, "my-ffmpeg-error");
+
+                        // Calculate the frame size in bytes (3 bytes per pixel for BGR format)
+                        int width = 3440;
+                        int height = 1440;
+                        int frameSize = width * height * 3; // 3 bytes for BGR format
+
+                        var buffer = new byte[frameSize];
+                        var stream = process.StandardOutput.BaseStream;
+                        int bytesRead = 0;
+
+                        while (true)
+                        {
+                            bytesRead += await stream.ReadAsync(buffer, bytesRead, frameSize - bytesRead);
+
+                            if (bytesRead == frameSize)
                             {
-                                var image = Image.FromStream(memoryStream);
-                                Debug.WriteLine("Image converted.");
-                                Program.Form.SetNewImage(ResizeImageToFit(image));
-                            }
+                                // Process the full frame
+                                ProcessFrame(buffer, width, height);
+                                bytesRead = 0; // Reset for the next frame
 
-                        process.WaitForExit(); // Ensure the process exits properly
-                        //await errorTask; // Ensure we read the error output completely
+                                Debug.WriteLine("Frame processed.");
+                            }
+                            else if (bytesRead == 0) // No more data
+                            {
+                                break;
+                            }
+                        }
+
+                        Debug.WriteLine("Data read.");
+
+
+                        process.WaitForExit();
                     }
                 });
             }
@@ -176,6 +260,24 @@ namespace MyMediaPlayer
             {
                 Debug.WriteLine(e.StackTrace);
                 Debug.WriteLine(e.Message);
+            }
+        }
+
+        private static void ProcessFrame(byte[] frameData, int width, int height)
+        {
+            // Convert byte array to Bitmap or handle raw data as needed
+            using (var bmp = new Bitmap(width, height, PixelFormat.Format24bppRgb))
+            {
+                var bmpData = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height),
+                    ImageLockMode.WriteOnly, bmp.PixelFormat);
+
+                // Copy the frame data to the bitmap
+                Marshal.Copy(frameData, 0, bmpData.Scan0, frameData.Length);
+
+                bmp.UnlockBits(bmpData);
+
+                // Display the bitmap in a PictureBox, or use it in your Windows Forms application
+                Program.Form.SetNewImage(ResizeImageToFit(bmp));
             }
         }
 
@@ -207,7 +309,7 @@ namespace MyMediaPlayer
             Debug.WriteLine("GetNextFrame");
             //string argument = $@"-i {VideoPath} -ss {from} -vf fps={1 / interval} -t {duration} -f image2pipe -pix_fmt rgb24 -vcodec rawvideo pipe:1";
             // Reducing the amount of used threads slows down the process, but increases the stability of the computer in general.
-            int coreCount = Math.Clamp(Environment.ProcessorCount - 2, 1, Environment.ProcessorCount); 
+            int coreCount = Math.Clamp(Environment.ProcessorCount - 2, 1, Environment.ProcessorCount);
             //string argument = $@"-hwaccel auto -i {VideoPath} -threads {coreCount} -ss {from} -vf fps={1 / interval} -t {duration} -f image2pipe -pix_fmt rgb24 pipe:1";
             string argument = $@"-hwaccel auto -ss {from} -t {duration} -i {VideoPath} -threads {coreCount} -f image2pipe -";
             System.Collections.Concurrent.ConcurrentQueue<Bitmap> queue = new System.Collections.Concurrent.ConcurrentQueue<Bitmap>();
@@ -287,9 +389,51 @@ namespace MyMediaPlayer
                 while (!reader.EndOfStream)
                 {
                     var line = await reader.ReadLineAsync();
-                    Debug.WriteLine(line ?? "NULL", tag);
+                    Debug.WriteLineIf(tag != null, line ?? "NULL", tag);
                 }
             }
+        }
+
+        //private static async Task<List<byte[]>> ReadMultipleFramesAlternativeAsync(Stream stream, int height, int width)
+        //{
+        //    var imagesData = new List<byte[]>();
+
+        //    using (var memoryStream = new MemoryStream())
+        //    {
+        //        await stream.CopyToAsync(memoryStream);
+        //        var allData = memoryStream.ToArray();
+        //        int frameSize = allData.Length / numberOfFrames;
+
+        //        for (int i = 0; i < numberOfFrames; i++)
+        //        {
+        //            var frameData = new byte[frameSize];
+        //            Array.Copy(allData, i * frameSize, frameData, 0, frameSize);
+        //            imagesData.Add(frameData);
+        //        }
+        //    }
+
+        //    return imagesData;
+        //}
+
+        private static async Task<List<byte[]>> ReadMultipleFramesAsync(Stream stream, int numberOfFrames)
+        {
+            var imagesData = new List<byte[]>();
+
+            using (var memoryStream = new MemoryStream())
+            {
+                await stream.CopyToAsync(memoryStream);
+                var allData = memoryStream.ToArray();
+                int frameSize = allData.Length / numberOfFrames;
+
+                for (int i = 0; i < numberOfFrames; i++)
+                {
+                    var frameData = new byte[frameSize];
+                    Array.Copy(allData, i * frameSize, frameData, 0, frameSize);
+                    imagesData.Add(frameData);
+                }
+            }
+
+            return imagesData;
         }
 
         private static async Task<byte[]> ReadStreamAsyncWithData(Stream stream, string tag)
