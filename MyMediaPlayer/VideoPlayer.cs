@@ -49,7 +49,7 @@ namespace MyMediaPlayer
         /// <summary>
         /// Start a video with a hardcoded path.
         /// </summary>
-        internal async void Initialize()
+        internal void Initialize()
         {
             // _videoPath = @"C:\Users\rosse\Videos\Dungeoncrawler\Dungeoncrawler 2023.02.11 - 12.35.45.04.DVR.mp4";
             // _videoPath = @"C:\Users\rosse\Downloads\file_example_MP4_1920_18MG.mp4";
