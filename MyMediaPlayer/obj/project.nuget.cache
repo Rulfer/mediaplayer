@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "F+pkHqwTY68=",
+  "dgSpecHash": "VYEyvEXgoQ4=",
   "success": true,
-  "projectFilePath": "F:\\PersonligeProsjekter\\mediaplayer\\MyMediaPlayer\\MyMediaPlayer.csproj",
+  "projectFilePath": "H:\\PersonligeProsjekter\\mediaplayer\\MyMediaPlayer\\MyMediaPlayer.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\rosse\\.nuget\\packages\\libvlcsharp\\3.8.5\\libvlcsharp.3.8.5.nupkg.sha512",
     "C:\\Users\\rosse\\.nuget\\packages\\libvlcsharp.winforms\\3.8.5\\libvlcsharp.winforms.3.8.5.nupkg.sha512",
@@ -59,8 +59,10 @@
     {
       "code": "NU1701",
       "level": "Warning",
-      "warningLevel": 1,
       "message": "Package 'MediaToolkit 1.1.0.1' was restored using '.NETFramework,Version=v4.6.1, .NETFramework,Version=v4.6.2, .NETFramework,Version=v4.7, .NETFramework,Version=v4.7.1, .NETFramework,Version=v4.7.2, .NETFramework,Version=v4.8, .NETFramework,Version=v4.8.1' instead of the project target framework 'net8.0-windows7.0'. This package may not be fully compatible with your project.",
+      "projectPath": "H:\\PersonligeProsjekter\\mediaplayer\\MyMediaPlayer\\MyMediaPlayer.csproj",
+      "warningLevel": 1,
+      "filePath": "H:\\PersonligeProsjekter\\mediaplayer\\MyMediaPlayer\\MyMediaPlayer.csproj",
       "libraryId": "MediaToolkit",
       "targetGraphs": [
         "net8.0-windows7.0"

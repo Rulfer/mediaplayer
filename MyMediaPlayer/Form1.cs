@@ -18,12 +18,16 @@ namespace MyMediaPlayer
             InitializeComponent();
         }
 
-        private void InitializePictureBox()
-        {
-            pictureBox.Dock = DockStyle.Fill;
-            pictureBox.SizeMode = PictureBoxSizeMode.Zoom;
-        }
+        // private void InitializePictureBox()
+        // {
+        //     pictureBox.Dock = DockStyle.Fill;
+        //     pictureBox.SizeMode = PictureBoxSizeMode.Zoom;
+        // }
 
+        /// <summary>
+        /// Update what frame is currently being displayed.
+        /// </summary>
+        /// <param name="image"></param>
         public void SetNewImage(Image image)
         {
             Invoke(new Action(() =>
@@ -34,21 +38,21 @@ namespace MyMediaPlayer
             }));
         }
 
-        internal void InjectFFmpeg(Process process)
-        {
-            Invoke(new Action(() =>
-            {
-                // The two DLL's are from this forum post: https://stackoverflow.com/questions/31465630/ffplay-successfully-moved-inside-my-winform-how-to-set-it-borderless"
-
-                // child, new parent
-                // make 'this' the parent of ffmpeg (presuming you are in scope of a Form or Control)
-                SetParent(process.MainWindowHandle, this.Handle);
-
-                // window, x, y, width, height, repaint
-                // move the ffplayer window to the top-left corner and set the size to 320x280
-                MoveWindow(process.MainWindowHandle, 0, 0, 320, 280, true);
-            }));
-        }
+        // internal void InjectFFmpeg(Process process)
+        // {
+        //     Invoke(new Action(() =>
+        //     {
+        //         // The two DLL's are from this forum post: https://stackoverflow.com/questions/31465630/ffplay-successfully-moved-inside-my-winform-how-to-set-it-borderless"
+        //
+        //         // child, new parent
+        //         // make 'this' the parent of ffmpeg (presuming you are in scope of a Form or Control)
+        //         SetParent(process.MainWindowHandle, this.Handle);
+        //
+        //         // window, x, y, width, height, repaint
+        //         // move the ffplayer window to the top-left corner and set the size to 320x280
+        //         MoveWindow(process.MainWindowHandle, 0, 0, 320, 280, true);
+        //     }));
+        // }
 
         private void Form1_Load(object sender, EventArgs e)
         {

@@ -51,7 +51,9 @@ namespace MyMediaPlayer
         /// </summary>
         internal async void Initialize()
         {
-            _videoPath = @"C:\Users\rosse\Videos\Dungeoncrawler\Dungeoncrawler 2023.02.11 - 12.35.45.04.DVR.mp4";
+            // _videoPath = @"C:\Users\rosse\Videos\Dungeoncrawler\Dungeoncrawler 2023.02.11 - 12.35.45.04.DVR.mp4";
+            // _videoPath = @"C:\Users\rosse\Downloads\file_example_MP4_1920_18MG.mp4";
+            _videoPath = @"C:\Users\rosse\Downloads\bbb_sunflower_2160p_30fps_normal.mp4";
             string ffmpegPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ffmpeg");
             Debug.WriteLine($"FFmpeg path is {ffmpegPath}, which {(Directory.Exists(ffmpegPath) ? "exists" : "doesn't exist")}.");
             //FFmpeg.SetExecutablesPath(ffmpegPath);
@@ -74,6 +76,7 @@ namespace MyMediaPlayer
 
             //MyFFmpeg.PlayVideo();
             _currentTempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+            Debug.WriteLine($"Temp files stored in '{_currentTempDir}'.");
 
             MyFFmpeg.GetAllTheFrames();
 
@@ -165,67 +168,67 @@ namespace MyMediaPlayer
         //    }
         //}
 
-        private async Task DisplayNextFrame(CancellationToken token)
-        {
-            while (!token.IsCancellationRequested)
-            {
-                while (_frameBuffer.Count <= 0)
-                    await Task.Yield();
-
-                int delay = (int) Math.Round((1.0 / _fps) * 1000);
-                await Task.Delay(delay);
-
-                if (_frameBuffer.TryDequeue(out Bitmap frame))
-                {
-                    //Program.Form.SetNewImage(frame);
-                    Program.Form.SetNewImage(ResizeImageToFit(frame));
-                }
-            }
-        }
-
-        private async Task RetrieveFrames(CancellationToken token)
-        {
-            string frameDir = Path.Combine(_currentTempDir, _frameFolderName);
-
-            while (!token.IsCancellationRequested)
-            {
-                //ConcurrentQueue<Bitmap> newQueue = await MyFFmpeg.GetFrames(frameDir, _fps, TimeSpan.FromSeconds(_currentPosition), _bufferSeconds);
-                ConcurrentQueue<Bitmap> newQueue = await MyFFmpeg.GetNextFrame(1.0f / (float)_fps, TimeSpan.FromSeconds(_currentPosition), _bufferSeconds);
-                _currentPosition += _bufferSeconds;
-                int length = newQueue.Count;
-                for(int i = 0; i < length; i++)
-                {
-                    if (newQueue.TryDequeue(out Bitmap result))
-                        _frameBuffer.Enqueue(result);
-                }
-
-                while (_frameBuffer.Count() / _fps > (_bufferSeconds / 2))
-                    await Task.Yield();
-            }
-        }
-
-        private Image ResizeImageToFit(Image image)
-        {
-            int sourceWidth = image.Width;
-            int sourceHeight = image.Height;
-            int targetWidth = Program.Frame.ClientSize.Width;
-            int targetHeight = Program.Frame.ClientSize.Height;
-
-            float nPercentW = (float)targetWidth / (float)sourceWidth;
-            float nPercentH = (float)targetHeight / (float)sourceHeight;
-            float nPercent = Math.Min(nPercentW, nPercentH);
-
-            int destWidth = (int)(sourceWidth * nPercent);
-            int destHeight = (int)(sourceHeight * nPercent);
-
-            Bitmap result = new Bitmap(targetWidth, targetHeight);
-            using (Graphics g = Graphics.FromImage(result))
-            {
-                g.Clear(Color.Black);
-                g.DrawImage(image, (targetWidth - destWidth) / 2, (targetHeight - destHeight) / 2, destWidth, destHeight);
-            }
-            return result;
-        }
+        // private async Task DisplayNextFrame(CancellationToken token)
+        // {
+        //     while (!token.IsCancellationRequested)
+        //     {
+        //         while (_frameBuffer.Count <= 0)
+        //             await Task.Yield();
+        //
+        //         int delay = (int) Math.Round((1.0 / _fps) * 1000);
+        //         await Task.Delay(delay);
+        //
+        //         if (_frameBuffer.TryDequeue(out Bitmap frame))
+        //         {
+        //             //Program.Form.SetNewImage(frame);
+        //             Program.Form.SetNewImage(ResizeImageToFit(frame));
+        //         }
+        //     }
+        // }
+        //
+        // private async Task RetrieveFrames(CancellationToken token)
+        // {
+        //     string frameDir = Path.Combine(_currentTempDir, _frameFolderName);
+        //
+        //     while (!token.IsCancellationRequested)
+        //     {
+        //         //ConcurrentQueue<Bitmap> newQueue = await MyFFmpeg.GetFrames(frameDir, _fps, TimeSpan.FromSeconds(_currentPosition), _bufferSeconds);
+        //         ConcurrentQueue<Bitmap> newQueue = await MyFFmpeg.GetNextFrame(1.0f / (float)_fps, TimeSpan.FromSeconds(_currentPosition), _bufferSeconds);
+        //         _currentPosition += _bufferSeconds;
+        //         int length = newQueue.Count;
+        //         for(int i = 0; i < length; i++)
+        //         {
+        //             if (newQueue.TryDequeue(out Bitmap result))
+        //                 _frameBuffer.Enqueue(result);
+        //         }
+        //
+        //         while (_frameBuffer.Count() / _fps > (_bufferSeconds / 2))
+        //             await Task.Yield();
+        //     }
+        // }
+        //
+        // private Image ResizeImageToFit(Image image)
+        // {
+        //     int sourceWidth = image.Width;
+        //     int sourceHeight = image.Height;
+        //     int targetWidth = Program.Frame.ClientSize.Width;
+        //     int targetHeight = Program.Frame.ClientSize.Height;
+        //
+        //     float nPercentW = (float)targetWidth / (float)sourceWidth;
+        //     float nPercentH = (float)targetHeight / (float)sourceHeight;
+        //     float nPercent = Math.Min(nPercentW, nPercentH);
+        //
+        //     int destWidth = (int)(sourceWidth * nPercent);
+        //     int destHeight = (int)(sourceHeight * nPercent);
+        //
+        //     Bitmap result = new Bitmap(targetWidth, targetHeight);
+        //     using (Graphics g = Graphics.FromImage(result))
+        //     {
+        //         g.Clear(Color.Black);
+        //         g.DrawImage(image, (targetWidth - destWidth) / 2, (targetHeight - destHeight) / 2, destWidth, destHeight);
+        //     }
+        //     return result;
+        // }
         //        internal void Initialize()
         //        {
         //            string WorkingDirectory;
