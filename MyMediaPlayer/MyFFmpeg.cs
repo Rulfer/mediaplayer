@@ -1,15 +1,11 @@
-﻿using NAudio.Wave;
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
-using System.IO;
-using System.Linq;
-using System.Media;
 using System.Runtime.InteropServices;
-using Xabe.FFmpeg;
+using MyMediaPlayer.Extensions;
 
 namespace MyMediaPlayer
 {
@@ -22,8 +18,7 @@ namespace MyMediaPlayer
 
         private static string _videoPath;
 
-        private static Process _processExtractFrame = null;
-        private static Process _processExtractAudio = null;
+        private static Process _process = null;
 
         /// <summary>
         /// Actual frame rate of the current video.
@@ -32,45 +27,7 @@ namespace MyMediaPlayer
 
         private static double CACHED_VIDEO_DURATION;
 
-        private static readonly object _frameLock = new object();
-        private static List<byte[]> _frameCache = new List<byte[]>();
         private static Thread _frameThread;
-
-        private static bool _audioReady = false;
-        private static bool _videoReady = false;
-        private static AudioManager _audioManager;
-
-        public static bool AudioReady
-        {
-            get => _audioReady;
-            set
-            {
-                _audioReady = value;
-                if (AudioReady && VideoReady)
-                {
-                    _audioManager.Start();
-                }
-            }
-        }
-
-        public static bool VideoReady
-        {
-            get => _videoReady;
-            set
-            {
-                _videoReady = value;
-                if (AudioReady && VideoReady)
-                {
-                    _audioManager.Start();
-                }
-            }
-        }
-        public static bool MediaReady => AudioReady && VideoReady;
-        public enum Extract
-        {
-            Frame,
-            Audio
-        }
 
         internal static string VideoPath
         {
@@ -80,59 +37,10 @@ namespace MyMediaPlayer
 
         private static void CloseProcess()
         {
-            _processExtractFrame?.Close();
-            _processExtractAudio?.Close();
-            _processExtractFrame = null;
-            _processExtractAudio = null;
+            _process?.Close();
+            _process = null;
         }
-
-        [DllImport("winmm.dll", SetLastError = true)]
-        private static extern int waveOutOpen(out IntPtr hWaveOut, uint uDeviceID,
-            ref WAVEFORMATEX lpFormat, IntPtr dwCallback, IntPtr dwInstance, uint dwFlags);
-
-        [DllImport("winmm.dll", SetLastError = true)]
-        private static extern int waveOutPrepareHeader(IntPtr hWaveOut,
-            ref WAVEHDR lpWaveOutHdr, uint uSize);
-
-        [DllImport("winmm.dll", SetLastError = true)]
-        private static extern int waveOutWrite(IntPtr hWaveOut,
-            ref WAVEHDR lpWaveOutHdr, uint uSize);
-
-        [DllImport("winmm.dll", SetLastError = true)]
-        private static extern int waveOutUnprepareHeader(IntPtr hWaveOut,
-            ref WAVEHDR lpWaveOutHdr, uint uSize);
-
-        [DllImport("winmm.dll", SetLastError = true)]
-        private static extern int waveOutClose(IntPtr hWaveOut);
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct WAVEFORMATEX
-        {
-            public ushort wFormatTag;
-            public ushort nChannels;
-            public uint nSamplesPerSec;
-            public uint nAvgBytesPerSec;
-            public ushort nBlockAlign;
-            public ushort wBitsPerSample;
-            public ushort cbSize;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct WAVEHDR
-        {
-            public IntPtr lpData;
-            public uint dwBufferLength;
-            public uint dwBytesRecorded;
-            public IntPtr dwUser;
-            public uint dwFlags;
-            public uint dwLoops;
-            public IntPtr lpNext;
-            public IntPtr reserved;
-        }
-
-        private const int WAVE_FORMAT_PCM = 1;
-        private const int CALLBACK_NULL = 0;
-
+        
         /// <summary>
         /// Remember to set <see cref="VideoPath"/> as that is what we use when retrieving the FPS.
         /// </summary>
@@ -200,6 +108,20 @@ namespace MyMediaPlayer
             };
         }
 
+        private static bool _preProcessDone = false;
+        
+        private static void Start()
+        {
+            Console.WriteLine("Resuming video playback...");
+            _process.Resume();
+        }
+
+        private static void Pause()
+        {
+            Console.WriteLine("Pause video playback...");
+            _process.Suspend();
+        }
+
         /// <summary>
         /// Extract frames directly from the ffmpeg output, and convert them to Image from byte[].
         /// </summary>
@@ -207,6 +129,9 @@ namespace MyMediaPlayer
         {
             //int coreCount = Math.Clamp(Environment.ProcessorCount - 2, 1, Environment.ProcessorCount);
 
+            VideoPlayer.Instance.OnPauseMedia += Pause;
+            VideoPlayer.Instance.OnResumeMedia += Start;
+            
             //await ExtractForLoop();
             await ExtractFPS();
         }
@@ -226,59 +151,57 @@ namespace MyMediaPlayer
             string singleFrameArgument =
                 $@"-hwaccel cuda -re -ss 00:00:00 -i {VideoPath} -map 0:v -preset ultrafast -s {width}x{height} -threads {4} -vf fps={CACHED_FPS} -f image2pipe -vcodec rawvideo -pix_fmt bgr24 pipe:1";
 
-            _audioManager = new AudioManager(VideoPath);
-            _ = _audioManager.StartAsync();
             try
             {
                 await Task.Run(async () =>
                 {
-                    // _ = audioManager.StartAsync();
-                    
-                    using (var process = new Process
-                               { StartInfo = NewProcessStartInfo(singleFrameArgument), EnableRaisingEvents = true })
+                    _process = new Process();
+                    _process.StartInfo = NewProcessStartInfo(singleFrameArgument);
+                    _process.EnableRaisingEvents = true;
+                    _process.Start();
+
+                    _ = ReadStreamAsync(_process.StandardError.BaseStream, "my-ffmpeg-error");
+
+                    // Calculate the frame size in bytes (3 bytes per pixel for BGR format)
+                    int frameSize = width * height * 3; // 3 bytes for BGR format
+
+                    var buffer = new byte[frameSize];
+                    var stream = _process.StandardOutput.BaseStream;
+                    int bytesRead = 0;
+
+                    while (true)
                     {
-                        Console.WriteLine("Start reading frames");
-                        process.Start();
-
-                        var errorTask = ReadStreamAsync(process.StandardError.BaseStream, "my-ffmpeg-error");
-
-                        // Calculate the frame size in bytes (3 bytes per pixel for BGR format)
-                        int frameSize = width * height * 3; // 3 bytes for BGR format
-
-                        var buffer = new byte[frameSize];
-                        var stream = process.StandardOutput.BaseStream;
-                        int bytesRead = 0;
-
-                        while (true)
+                        if (!VideoPlayer.Instance.IsMediaReady && _preProcessDone)
                         {
-                            if(!MediaReady && VideoReady)
-                                continue;
-                            
-                            bytesRead += await stream.ReadAsync(buffer, bytesRead, frameSize - bytesRead);
-                            VideoReady = true;
+                            // The first frame has been extracted, and the media should be paused, so don't process any more frames for now. 
+                            // TODO: Pause #Process since this runs in the background, handled by windows.
+                            continue;
+                        }
 
-                            if (bytesRead == frameSize)
+                        bytesRead += await stream.ReadAsync(buffer, bytesRead, frameSize - bytesRead);
+                        if (!_preProcessDone)
+                        {
+                            VideoPlayer.Instance.VideoReady = true;
+                            _preProcessDone = true;
+                            if (bytesRead <= 0)
                             {
-                                // Process the full frame
-
-                                // lock(_frameLock)
-                                // {
-                                //     _frameCache.Add(buffer);
-                                // }
-                                ProcessFrame(buffer, width, height);
-                                bytesRead = 0; // Reset for the next frame
-                            }
-                            else if (bytesRead == 0) // No more data
-                            {
-                                break;
+                                throw new NotImplementedException("Failed to read video from ffmpeg.");
                             }
                         }
 
-                        Console.WriteLine("Data read.");
-
-
-                        process.WaitForExit();
+                        if (bytesRead == frameSize)
+                        {
+                            // Process the full frame
+                            ProcessFrame(buffer, width, height);
+                            bytesRead = 0; // Reset for the next frame
+                        }
+                        else if (bytesRead == 0) // No more data
+                        {
+                            break;
+                        }
                     }
+
+                    _process.WaitForExit();
                 });
             }
             catch (Exception e)
@@ -288,166 +211,63 @@ namespace MyMediaPlayer
             }
         }
 
-        // private const int WHDR_DONE = 0x00000001;
-        // private static async Task StreamAudio()
-        // {
-        //     var probeInfo = await ProbeAudioInformation();
-        //     int channels = probeInfo.Channels;
-        //     int sampleRate = probeInfo.SampleRate;
-        //     int bitsPerSample = 16;
-        //
-        //     string args = $"-re -i \"{VideoPath}\" -vn -ac {channels} -ar {sampleRate} -f s16le pipe:1";
-        //
-        //     using var process = new Process { StartInfo = NewProcessStartInfo(args), EnableRaisingEvents = true };
-        //     process.Start();
-        //     var stream = process.StandardOutput.BaseStream;
-        //     _ = ReadStreamAsync(process.StandardError.BaseStream, "ffmpeg-audio");
-        //
-        //     var format = new WAVEFORMATEX
-        //     {
-        //         wFormatTag = WAVE_FORMAT_PCM,
-        //         nChannels = (ushort)channels,
-        //         nSamplesPerSec = (uint)sampleRate,
-        //         wBitsPerSample = (ushort)bitsPerSample,
-        //         nBlockAlign = (ushort)((channels * bitsPerSample) / 8),
-        //         nAvgBytesPerSec = (uint)(sampleRate * ((channels * bitsPerSample) / 8)),
-        //         cbSize = 0
-        //     };
-        //
-        //     int res = waveOutOpen(out IntPtr hWaveOut, 0, ref format, IntPtr.Zero, IntPtr.Zero, CALLBACK_NULL);
-        //     if (res != 0) throw new Exception("waveOutOpen failed: " + res);
-        //
-        //     
-        //     int bufferSize = 32768; // 32 KB buffer (~0.3s stereo 48kHz)
-        //     IntPtr ptr = Marshal.AllocHGlobal(bufferSize);
-        //     var header = new WAVEHDR
-        //     {
-        //         lpData = ptr,
-        //         dwBufferLength = (uint)bufferSize,
-        //         dwFlags = 0,
-        //         dwLoops = 0
-        //     };
-        //     waveOutPrepareHeader(hWaveOut, ref header, (uint)Marshal.SizeOf(typeof(WAVEHDR)));
-        //     
-        //     const int BufferSize = 16384;
-        //     byte[] buffer = new byte[BufferSize];
-        //     
-        //     try
-        //     {
-        //         while (true)
-        //         {
-        //             int bytesRead = await stream.ReadAsync(buffer, 0, BufferSize);
-        //             if (bytesRead == 0) break;
-        //
-        //             // Wait until previous buffer is done
-        //             while ((header.dwFlags & (uint)WHDR_DONE) == 0)
-        //                 await Task.Delay(1);
-        //
-        //             // Copy data into pre-allocated memory
-        //             Marshal.Copy(buffer, 0, ptr, bytesRead);
-        //
-        //             header.lpData = ptr;
-        //             header.dwBufferLength = (uint)bytesRead;
-        //             header.dwFlags &= ~(uint)WHDR_DONE;
-        //
-        //             waveOutPrepareHeader(hWaveOut, ref header, (uint)Marshal.SizeOf(typeof(WAVEHDR)));
-        //             waveOutWrite(hWaveOut, ref header, (uint)Marshal.SizeOf(typeof(WAVEHDR)));
-        //         }
-        //     }
-        //     finally
-        //     {
-        //         Marshal.FreeHGlobal(ptr);
-        //         waveOutClose(hWaveOut);
-        //     }
-        //     
-        //     waveOutClose(hWaveOut);
-        //     process.WaitForExit();
-        // }
-        //
-        // private static async Task<(int Channels, int SampleRate)> ProbeAudioInformation()
-        // {
-        //     string probeArgs =
-        //         $"-i \"{VideoPath}\" -hide_banner -select_streams a:0 -show_entries stream=channels,sample_rate -of default=noprint_wrappers=1:nokey=0";
-        //     using var process = new Process
-        //         { StartInfo = NewProcessStartInfo(probeArgs), EnableRaisingEvents = true };
-        //     process.Start();
-        //
-        //     var output = await process.StandardOutput.ReadToEndAsync();
-        //     await process.WaitForExitAsync();
-        //
-        //     // Assign default values if the output is empty.
-        //     int channels = 2;
-        //     int sampleRate = 48000;
-        //
-        //     foreach (var line in output.Split('\n'))
-        //     {
-        //         if (line.StartsWith("channels=")) channels = int.Parse(line.Split('=')[1]);
-        //         if (line.StartsWith("sample_rate=")) sampleRate = int.Parse(line.Split('=')[1]);
-        //     }
-        //
-        //     return (channels, sampleRate);
-        // }
-        
 
-            public static async Task ReadStreamAsync(Stream stream, string tag)
+        public static async Task ReadStreamAsync(Stream stream, string tag)
+        {
+            using (var reader = new StreamReader(stream))
             {
-                using (var reader = new StreamReader(stream))
+                while (!reader.EndOfStream)
                 {
-                    while (!reader.EndOfStream)
-                    {
-                        var line = await reader.ReadLineAsync();
-                        // Console.WriteLine(line ?? "NULL");
-                    }
+                    var line = await reader.ReadLineAsync();
+                    // Console.WriteLine(line ?? "NULL");
                 }
             }
+        }
 
-            private static void ProcessFrame(byte[] frameData, int width, int height)
+        private static void ProcessFrame(byte[] frameData, int width, int height)
+        {
+            // Convert byte array to Bitmap or handle raw data as needed
+            using (var bmp = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format24bppRgb))
             {
-                // Convert byte array to Bitmap or handle raw data as needed
-                using (var bmp = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format24bppRgb))
-                {
-                    var bmpData = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height),
-                        ImageLockMode.WriteOnly, bmp.PixelFormat);
+                var bmpData = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height),
+                    ImageLockMode.WriteOnly, bmp.PixelFormat);
 
-                    // Copy the frame data to the bitmap
-                    Marshal.Copy(frameData, 0, bmpData.Scan0, frameData.Length);
+                // Copy the frame data to the bitmap
+                Marshal.Copy(frameData, 0, bmpData.Scan0, frameData.Length);
 
-                    bmp.UnlockBits(bmpData);
+                bmp.UnlockBits(bmpData);
 
-                    // Display the bitmap in a PictureBox, or use it in your Windows Forms application
-                    Program.Form.SetNewImage(ResizeImageToFit(bmp));
-                }
+                // Display the bitmap in a PictureBox, or use it in your Windows Forms application
+                Program.Form.SetNewImage(ResizeImageToFit(bmp));
+            }
+        }
+
+        private static Image ResizeImageToFit(Image image)
+        {
+            int sourceWidth = image.Width;
+            int sourceHeight = image.Height;
+            int targetWidth = Program.Frame.ClientSize.Width;
+            int targetHeight = Program.Frame.ClientSize.Height;
+
+            float nPercentW = (float)targetWidth / (float)sourceWidth;
+            float nPercentH = (float)targetHeight / (float)sourceHeight;
+            float nPercent = Math.Min(nPercentW, nPercentH);
+
+            int destWidth = (int)(sourceWidth * nPercent);
+            int destHeight = (int)(sourceHeight * nPercent);
+
+            Bitmap result = new Bitmap(targetWidth, targetHeight);
+            using (Graphics g = Graphics.FromImage(result))
+            {
+                // Optimize the graphics settings
+                g.InterpolationMode = InterpolationMode.NearestNeighbor; // Prioritize speed over quality
+
+                g.Clear(Color.Black);
+                g.DrawImage(image, (targetWidth - destWidth) / 2, (targetHeight - destHeight) / 2, destWidth,
+                    destHeight);
             }
 
-            private static Image ResizeImageToFit(Image image)
-            {
-                int sourceWidth = image.Width;
-                int sourceHeight = image.Height;
-                int targetWidth = Program.Frame.ClientSize.Width;
-                int targetHeight = Program.Frame.ClientSize.Height;
-
-                float nPercentW = (float)targetWidth / (float)sourceWidth;
-                float nPercentH = (float)targetHeight / (float)sourceHeight;
-                float nPercent = Math.Min(nPercentW, nPercentH);
-
-                int destWidth = (int)(sourceWidth * nPercent);
-                int destHeight = (int)(sourceHeight * nPercent);
-
-                Bitmap result = new Bitmap(targetWidth, targetHeight);
-                using (Graphics g = Graphics.FromImage(result))
-                {
-                    // Optimize the graphics settings
-                    g.InterpolationMode = InterpolationMode.NearestNeighbor; // Prioritize speed over quality
-                    //g.SmoothingMode = SmoothingMode.None;         // Disable smoothing for speed
-                    //g.PixelOffsetMode = PixelOffsetMode.HighSpeed; // Optimize pixel offset handling
-
-                    g.Clear(Color.Black);
-                    g.DrawImage(image, (targetWidth - destWidth) / 2, (targetHeight - destHeight) / 2, destWidth,
-                        destHeight);
-                }
-
-                return result;
-            }
-            
+            return result;
         }
     }
+}

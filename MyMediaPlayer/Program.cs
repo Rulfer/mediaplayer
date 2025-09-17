@@ -34,9 +34,6 @@ namespace MyMediaPlayer
         static void OnFormLoaded(object sender, EventArgs e)
         {
             VideoPlayer.Initialize();
-
-            // Example of easy way to play an audio file.
-            //LoadFileAsync();
         }
 
         static async void LoadFileAsync()

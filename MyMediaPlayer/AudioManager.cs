@@ -1,88 +1,123 @@
 ﻿using NAudio.Wave;
 using System.Diagnostics;
+using MyMediaPlayer.Extensions;
 
 namespace MyMediaPlayer;
 
 public class AudioManager
 {
-    private string VideoPath { get; set; }
-    
+    private string VideoPath { get; }
+
     private WaveOutEvent _waveOut;
     private BufferedWaveProvider _bufferedWave;
     private Process _process;
+
+    private bool _preProcessDone = false;
+
+    private Thread _myThread;
     
     public AudioManager(string videoPath)
     {
         VideoPath = videoPath;
+        
+        VideoPlayer.Instance.OnPauseMedia += Pause;
+        VideoPlayer.Instance.OnResumeMedia += Start;
     }
 
-    public void Start()
+    private void Start()
     {
+        Console.WriteLine("Resuming audio playback...");
         _waveOut.Play();
-    }
-
-    public void Pause()
-    {
+        _process.Resume();
         
     }
 
-    public async Task StartAsync()
+    private void Pause()
     {
-        var probeInfo = await ProbeAudioInformation(); // get channels & sample rate
-        int channels = probeInfo.Channels;
-        int sampleRate = probeInfo.SampleRate;
-        int bitsPerSample = 16; // s16le
+        Console.WriteLine("Pause audio playback...");
+        _waveOut.Pause();
+        _bufferedWave.ClearBuffer(); // dump any queued samples
+        _process.Suspend();
+    }
 
-        string args = $"-re -i \"{VideoPath}\" -vn -ac {channels} -ar {sampleRate} -f s16le pipe:1";
+    public async void StartAsync()
+    {
+        await RetrieveAudio();
+    }
 
-        
-        _process = new Process
+    private async Task RetrieveAudio()
+    {
+        try
         {
-            StartInfo = MyFFmpeg.NewProcessStartInfo(args),
-            EnableRaisingEvents = true
-        };
-        _process.Start();
-        _ =MyFFmpeg.ReadStreamAsync(_process.StandardError.BaseStream, "ffmpeg-audio");
-        
-        // await using var waveStream = new RawSourceWaveStream(
-        //     process.StandardOutput.BaseStream,
-        //     new WaveFormat(sampleRate, bitsPerSample, channels));
-        _bufferedWave = new BufferedWaveProvider(new WaveFormat(sampleRate, bitsPerSample, channels))
-        {
-            BufferDuration = TimeSpan.FromSeconds(5), // give it some room
-            DiscardOnBufferOverflow = true
-        };
-        
-        _waveOut = new WaveOutEvent(); // safe high-level output
-        _waveOut.Init(_bufferedWave);
-
-        Console.WriteLine("Audio playing...");
-
-        // Start background reader loop
-        await Task.Run(async () =>
-        {
-            var buffer = new byte[16384];
-            int bytesRead;
-            while (true)
+            // Start background reader loop
+            await Task.Run(async () =>
             {
-                if(!MyFFmpeg.MediaReady && MyFFmpeg.AudioReady)
-                    continue;
-                
-                while ((bytesRead = await _process.StandardOutput.BaseStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                var probeInfo = await ProbeAudioInformation(); // get channels & sample rate
+                int channels = probeInfo.Channels;
+                int sampleRate = probeInfo.SampleRate;
+                int bitsPerSample = 16; // s16le
+
+                string args = $"-re -i \"{VideoPath}\" -vn -ac {channels} -ar {sampleRate} -f s16le pipe:1";
+
+                _process = new Process();
+                _process.StartInfo = MyFFmpeg.NewProcessStartInfo(args);
+                _process.EnableRaisingEvents = true;
+                _process.Start();
+                _ = MyFFmpeg.ReadStreamAsync(_process.StandardError.BaseStream, "ffmpeg-audio");
+
+                _bufferedWave = new BufferedWaveProvider(new WaveFormat(sampleRate, bitsPerSample, channels))
                 {
-                    _bufferedWave.AddSamples(buffer, 0, bytesRead);
-                    MyFFmpeg.AudioReady = true;
+                    BufferDuration = TimeSpan.FromMilliseconds(200), // give it some room
+                    DiscardOnBufferOverflow = true
+                };
+
+                _waveOut = new WaveOutEvent(); // safe high-level output
+                _waveOut.Init(_bufferedWave);
+
+                var buffer = new byte[16384];
+                while (true)
+                {
+                    if (!VideoPlayer.Instance.IsMediaReady && _preProcessDone)
+                    {
+                        continue;
+                    }
+
+                    var bytesRead = await _process.StandardOutput.BaseStream.ReadAsync(buffer, 0, buffer.Length);
+                    if(!_preProcessDone)
+                    {
+                        _preProcessDone = true;
+                        VideoPlayer.Instance.AudioReady = true;
+                        if (bytesRead <= 0)
+                        {
+                            throw new NotImplementedException("Failed to read audio from ffmpeg.");
+                        }
+                    }
+                    
+                    if(bytesRead > 0)
+                    {
+                        _bufferedWave.AddSamples(buffer, 0, bytesRead);
+                    }
+                    else
+                    {
+                        break;
+                    }
                 }
-            }
-            
-        });
-        _process.WaitForExit();
+                _process.WaitForExit();
+                
+            });
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e.StackTrace);
+            Console.WriteLine(e.Message);
+        }
 
     }
-    
+
     private async Task<(int Channels, int SampleRate)> ProbeAudioInformation()
     {
-        string probeArgs = $"-i \"{VideoPath}\" -hide_banner -select_streams a:0 -show_entries stream=channels,sample_rate -of default=noprint_wrappers=1:nokey=0";
+        string probeArgs =
+            $"-i \"{VideoPath}\" -hide_banner -select_streams a:0 -show_entries stream=channels,sample_rate -of default=noprint_wrappers=1:nokey=0";
         using (var process = new Process
                    { StartInfo = MyFFmpeg.NewProcessStartInfo(probeArgs), EnableRaisingEvents = true })
         {
@@ -105,4 +140,50 @@ public class AudioManager
         }
     }
 
+    // [DllImport("winmm.dll", SetLastError = true)]
+    // private static extern int waveOutOpen(out IntPtr hWaveOut, uint uDeviceID,
+    //     ref WAVEFORMATEX lpFormat, IntPtr dwCallback, IntPtr dwInstance, uint dwFlags);
+    //
+    // [DllImport("winmm.dll", SetLastError = true)]
+    // private static extern int waveOutPrepareHeader(IntPtr hWaveOut,
+    //     ref WAVEHDR lpWaveOutHdr, uint uSize);
+    //
+    // [DllImport("winmm.dll", SetLastError = true)]
+    // private static extern int waveOutWrite(IntPtr hWaveOut,
+    //     ref WAVEHDR lpWaveOutHdr, uint uSize);
+    //
+    // [DllImport("winmm.dll", SetLastError = true)]
+    // private static extern int waveOutUnprepareHeader(IntPtr hWaveOut,
+    //     ref WAVEHDR lpWaveOutHdr, uint uSize);
+    //
+    // [DllImport("winmm.dll", SetLastError = true)]
+    // private static extern int waveOutClose(IntPtr hWaveOut);
+    //
+    // [StructLayout(LayoutKind.Sequential)]
+    // private struct WAVEFORMATEX
+    // {
+    //     public ushort wFormatTag;
+    //     public ushort nChannels;
+    //     public uint nSamplesPerSec;
+    //     public uint nAvgBytesPerSec;
+    //     public ushort nBlockAlign;
+    //     public ushort wBitsPerSample;
+    //     public ushort cbSize;
+    // }
+    //
+    // [StructLayout(LayoutKind.Sequential)]
+    // private struct WAVEHDR
+    // {
+    //     public IntPtr lpData;
+    //     public uint dwBufferLength;
+    //     public uint dwBytesRecorded;
+    //     public IntPtr dwUser;
+    //     public uint dwFlags;
+    //     public uint dwLoops;
+    //     public IntPtr lpNext;
+    //     public IntPtr reserved;
+    // }
+    //
+    // private const int WAVE_FORMAT_PCM = 1;
+    // private const int CALLBACK_NULL = 0;
 }

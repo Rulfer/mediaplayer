@@ -19,37 +19,38 @@
             }
             base.Dispose(disposing);
         }
-
+        
         #region Windows Form Designer generated code
 
         /// <summary>
-        ///  Required method for Designer support - do not modify
-        ///  the contents of this method with the code editor.
+        /// Required method for Designer support - do not modify
+        /// the contents of this method with the code editor.
         /// </summary>
         private void InitializeComponent()
         {
-            pictureBox = new PictureBox();
+            pictureBox = new System.Windows.Forms.PictureBox();
             ((System.ComponentModel.ISupportInitialize)pictureBox).BeginInit();
             SuspendLayout();
             // 
             // pictureBox
             // 
-            pictureBox.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-            pictureBox.BackgroundImageLayout = ImageLayout.None;
-            pictureBox.Location = new Point(12, 12);
+            pictureBox.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) | System.Windows.Forms.AnchorStyles.Left) | System.Windows.Forms.AnchorStyles.Right));
+            pictureBox.BackgroundImageLayout = System.Windows.Forms.ImageLayout.None;
+            pictureBox.Location = new System.Drawing.Point(12, 12);
             pictureBox.Name = "pictureBox";
-            pictureBox.Size = new Size(776, 426);
+            pictureBox.Size = new System.Drawing.Size(776, 426);
             pictureBox.TabIndex = 1;
             pictureBox.TabStop = false;
             // 
             // Form1
             // 
-            AutoScaleDimensions = new SizeF(7F, 15F);
-            AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(800, 450);
+            AllowDrop = true;
+            AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
+            AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+            ClientSize = new System.Drawing.Size(800, 450);
             Controls.Add(pictureBox);
-            Name = "Form1";
-            Text = "Form1";
+            KeyPreview = true;
+            Text = "Bårds Media Player";
             Load += Form1_Load;
             ((System.ComponentModel.ISupportInitialize)pictureBox).EndInit();
             ResumeLayout(false);
@@ -57,5 +58,7 @@
 
         #endregion
         internal PictureBox pictureBox;
+        
+
     }
 }
