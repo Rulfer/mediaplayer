@@ -109,17 +109,19 @@ namespace MyMediaPlayer
         }
 
         private static bool _preProcessDone = false;
-        
+        private static ManualResetEventSlim _pauseEvent = new ManualResetEventSlim(true);
         private static void Start()
         {
             Console.WriteLine("Resuming video playback...");
             _process.Resume();
-        }
+            _pauseEvent.Set();    }
 
         private static void Pause()
         {
             Console.WriteLine("Pause video playback...");
             _process.Suspend();
+            _pauseEvent.Reset();
+            
         }
 
         /// <summary>
@@ -145,7 +147,8 @@ namespace MyMediaPlayer
             // -loglevel quiet
             int width = 1920;
             int height = 1080;
-
+            // Calculate the frame size in bytes (3 bytes per pixel for BGR format)
+            int frameSize = width * height * 3; // 3 bytes for BGR format
             // With these arguments I don't ever get to cache frames. I extract the current frame, and then process it. I then wait until the next frame before processing that one.
             // string singleFrameArgument = $@"-hwaccel auto -re -ss 00:00:00 -i {VideoPath} -map 0:v -preset ultrafast -s {width}x{height} -threads {4} -vf fps={CACHED_FPS} -f image2pipe -vcodec rawvideo -pix_fmt bgr24 pipe:1";
             string singleFrameArgument =
@@ -162,15 +165,14 @@ namespace MyMediaPlayer
 
                     _ = ReadStreamAsync(_process.StandardError.BaseStream, "my-ffmpeg-error");
 
-                    // Calculate the frame size in bytes (3 bytes per pixel for BGR format)
-                    int frameSize = width * height * 3; // 3 bytes for BGR format
-
                     var buffer = new byte[frameSize];
                     var stream = _process.StandardOutput.BaseStream;
                     int bytesRead = 0;
 
                     while (true)
                     {
+                        _pauseEvent.Wait(); // blocks here if paused
+                        
                         if (!VideoPlayer.Instance.IsMediaReady && _preProcessDone)
                         {
                             // The first frame has been extracted, and the media should be paused, so don't process any more frames for now. 
